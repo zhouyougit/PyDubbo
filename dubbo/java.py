@@ -252,6 +252,7 @@ def analyseParamTypes(types) :
 
 class JavaClassLoader(object) :
     def __init__(self, classPath = None) :
+        self.classMap = {}
         if classPath == None :
             classPath = os.getenv('PD_CLASSPATH')
         if not classPath :
@@ -269,6 +270,9 @@ class JavaClassLoader(object) :
                 self.classPath.append(path)
 
     def findClass(self, className) :
+        if className in self.classMap :
+            return self.classMap[className]
+
         input =  self.__findClassInput(className)
         if input == None :
             return None
@@ -276,6 +280,9 @@ class JavaClassLoader(object) :
             classInfo = JavaClass(input)
         finally :
             input.close()
+
+        if classInfo != None :
+            self.classMap[className] = classInfo
         return classInfo
 
     def __findClassInput(self, className) :
