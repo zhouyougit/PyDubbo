@@ -14,9 +14,6 @@ import datetime
 
 __version__ = '0.1.0'
 
-Object = hessian2.Object
-Binary = hessian2.Binary
-
 class Future(object) :
     FUTURES = {}
     def __init__(self, request, timeout = 1) :
@@ -178,8 +175,8 @@ class DubboProxy(object) :
                     or (pType == types.StringType and jType == 'string') \
                     or (pType == types.TupleType and jType == 'list') \
                     or (pType == types.UnicodeType and jType == 'string') \
-                    or (pType == Object and jType == args[i]._metaType) \
-                    or (pType == Binary and jType == 'byte') :
+                    or (pType == hessian2.Object and jType == args[i]._metaType) \
+                    or (pType == hessian2.Binary and jType == 'byte') :
                     continue
                 elif pType == types.NoneType :
                     continue
@@ -228,7 +225,7 @@ def __JsonDefault(obj):
         return obj.strftime('%Y-%m-%dT%H:%M:%S') 
     elif isinstance(obj, datetime.date) : 
         return obj.strftime('%Y-%m-%d') 
-    elif isinstance(obj, Object) :
+    elif isinstance(obj, hessian2.Object) :
         return obj.__dict__
     else: 
         raise TypeError('%r is not JSON serializable' % obj) 
@@ -237,7 +234,7 @@ def formatObject(obj) :
     return json.dumps(obj, ensure_ascii=False, indent=2, default = __JsonDefault)
 
 if __name__ == '__main__' :
-    client = Dubbo(('localhost', 20880), 'travel-service-interface-1.5.3.jar', owner = 'you.zhou', customer = 'consumer-of-travel-book')
+    client = Dubbo(('localhost', 20880), '../travel-service-interface-1.5.3.jar', owner = 'you.zhou', customer = 'consumer-of-travel-book')
 
     proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2')
 
@@ -247,7 +244,7 @@ if __name__ == '__main__' :
 
     print formatObject(antispamService.check([u'你好江泽民', u'64', u'呵呵']))
 
-    #sortE = Object('com.qunar.travel.query.param.SortDir', {'name' : 'DESC'})
+    #sortE = hessian2.Object('com.qunar.travel.query.param.SortDir', {'name' : 'DESC'})
 
     #print formatObject(proxy.getBookList('5763120@qunar', 0, 10, 1, sortE))
 
