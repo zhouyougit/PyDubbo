@@ -59,6 +59,7 @@ class JavaClass(object) :
             raise ValueError('input and fileName None')
         self.__readClass()
         self.__postProcess()
+        del self.input
 
     def __postProcess(self) :
         self.methodMap = {}
@@ -160,10 +161,7 @@ class JavaClass(object) :
         return attributes
 
     def __str__(self) :
-        input = self.input
-        del self.input
         ps = 'JavaClass : ' + str(self.__dict__)
-        self.input = input
         return ps
 
 
@@ -252,9 +250,58 @@ def analyseParamTypes(types) :
         result.append(t)
     return result
 
+class JavaClassLoader(object) :
+    def __init__(self, classPath = None) :
+        if classPath == None :
+            classPath = os.getenv('PD_CLASSPATH')
+        if not classPath :
+            raise EnvironmentError('java class path is empty')
+        self.__analyseClassPath(classPath)
+
+    def __analyseClassPath(self, classPath) :
+        tempPaths = classPath.replace(';', ':').split(':')
+        self.classPath = []
+        for path in tempPaths :
+            path = os.path.realpath(path)
+            if path.endswith('.jar') :
+                self.classPath.append(path)
+            elif os.path.isdir(path) :
+                self.classPath.append(path)
+
+    def findClass(self, className) :
+        input =  self.__findClassInput(className)
+        if input == None :
+            return None
+        try :
+            classInfo = JavaClass(input)
+        finally :
+            input.close()
+        return classInfo
+
+    def __findClassInput(self, className) :
+        classFileName = className.replace('.', '/') + '.class'
+        for path in self.classPath :
+            if os.path.isdir(path) :
+                tempPath = os.path.join(path, classFileName)
+                if os.path.isfile(tempPath) :
+                    return file(tempPath)
+            else :
+                jarFile = zipfile.ZipFile(path)
+                try :
+                    classData = jarFile.read(classFileName)
+                except KeyError :
+                    continue
+                finally :
+                    jarFile.close()
+                return StringIO(classData)
+        return None
+
+
 if __name__ == '__main__' :
-    loader = JarLoader('travel-service-interface-1.5.3.jar')
-    classDef = loader.getClassDef('com.qunar.travel.book.service.ITravelBookService2')
+    javaClassLoader = JavaClassLoader('.:travel-service-interface-1.5.3.jar')
+    classDef = javaClassLoader.findClass('com.qunar.travel.book.service.ITravelBookService2')
     print classDef
-    print JavaClass(classFileName='ITravelBookService2.class')
+    print '-----------'
+    classDef = javaClassLoader.findClass('ITravelBookService2')
+    print classDef
 

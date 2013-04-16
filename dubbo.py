@@ -7,7 +7,7 @@ import hessian2
 import threading
 import thread
 import Queue
-import jar
+import java
 import json
 import types
 import datetime
@@ -144,7 +144,7 @@ class DubboProxy(object) :
                         ') maybe : '
                 for method in methods :
                     errorStr += self.classInfo.thisClass + '.' + name + '(' + \
-                            ', '.join(jar.analyseParamTypes(self.__getParamType(method))) + \
+                            ', '.join(java.analyseParamTypes(self.__getParamType(method))) + \
                             ')'
                 raise KeyError(errorStr)
         else :
@@ -160,7 +160,7 @@ class DubboProxy(object) :
 
     def __guessMethod(self, methods, args) :
         for method in methods :
-            paramTypes = jar.analyseParamTypes(self.__getParamType(method))
+            paramTypes = java.analyseParamTypes(self.__getParamType(method))
             if len(paramTypes) != len(args) :
                 continue
             ok = True
@@ -203,10 +203,9 @@ class DubboProxy(object) :
         return dubbo_invoke
 
 class Dubbo(object):
-    def __init__(self, addr, interfaceJar, owner = None, customer = None, organization = None):
+    def __init__(self, addr, classPath = None, owner = None, customer = None, organization = None):
         self.client = DubboClient(addr)
-        self.interfaceJar = interfaceJar
-        self.jarLoader = jar.JarLoader(interfaceJar)
+        self.javaClassLoader = java.JavaClassLoader(classPath)
         if owner == None :
             owner = 'pythonGuest'
         if customer == None :
@@ -214,7 +213,7 @@ class Dubbo(object):
         self.attachments = {'owner' : owner, 'customer' : customer}
 
     def getProxy(self, interface, timeout = 1000, version = '1.0.0') :
-        classInfo = self.jarLoader.getClassDef(interface)
+        classInfo = self.javaClassLoader.findClass(interface)
         if classInfo == None :
             return None
         attachments = self.attachments.copy()
