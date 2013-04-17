@@ -28,21 +28,21 @@ config 参考
 Dubbo对象的config参数包含的内容比较丰富，目前支持的配置如下：
 
 ### owner
-    指定dubbo client的所有者
+指定dubbo client的所有者
 ### customer
-    指定dubbo client名字
+指定dubbo client名字
 ### classpath
-    指定dubbo远程接口对应的java class所在的路径，以冒号或者分号分隔
-    可以支持jar格式
-    该参数可以不指定，改为通过环境变量"PD_CLASSPATH"来指定,config的优先级高于环境变量
+指定dubbo远程接口对应的java class所在的路径，以冒号或者分号分隔
+可以支持jar格式
+该参数可以不指定，改为通过环境变量"PD_CLASSPATH"来指定,config的优先级高于环境变量
 ### reference
-    为一个dict，包含每一个具体接口的详细配置
-    'interfaceName' : referenceConfig
+为一个dict，包含每一个具体接口的详细配置
+'interfaceName' : referenceConfig
 
 referenceConfig 参考
 -----------------------
 ### async
-    该接口是否异步调用，调用示例：
+该接口是否异步调用，调用示例：
         remoteService.getTestInfo(123)
         future1 = RpcContext.future
         remoteService.getTestInfo(124)
@@ -52,15 +52,21 @@ referenceConfig 参考
         result2 = future2.get()
 
 ### withReturn
-    该接口是否需要等待返回值，如果为False则不等待接口返回。
+该接口是否需要等待返回值，如果为False则不等待接口返回。
 
 ### method
-    为一个dict，包含接口中每一个方法的具体配置
-    'methodName' : methodConfig
+为一个dict，包含接口中每一个方法的具体配置
+'methodName' : methodConfig
+
+### timeout
+接口调用超时时间, 单位秒，可以为浮点数
 
 methodConfig 参考
 ----------------------
 ### async
-    同 referenceConfig 的async
+同 referenceConfig 的async
 ### withReturn
-    同 referenceConfig 的withReturn
+同 referenceConfig 的withReturn
+### timeout
+同 referenceConfig 的timeout
+
