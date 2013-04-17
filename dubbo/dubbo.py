@@ -39,13 +39,10 @@ class Future(object) :
     def getWithTimeout(self, timeout) :
         if self.isDone() :
             return self.__doReturn()
-        self.lock.acquire()
-        try :
+        with self.lock :
             self.cond.wait(self.timeout)
             if not self.isDone() :
                 raise protocol.DubboTimeoutException('waiting response timeout. elapsed :' + str(self.timeout))
-        finally :
-            self.lock.release()
 
         return self.__doReturn()
 
@@ -70,12 +67,9 @@ class Future(object) :
             future.doReceived(response)
 
     def doReceived(self, response) :
-        self.lock.acquire()
-        try :
+        with self.lock :
             self.response = response
             self.cond.notifyAll()
-        finally :
-            self.lock.release()
 
     def __doReturn(self) :
         if self.response.status != protocol.DubboResponse.OK :

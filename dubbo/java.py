@@ -1,11 +1,7 @@
 import zipfile
 import os
 import struct
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
+from cStringIO import StringIO
 
 MAGIC_NUMBER = 0xCAFEBABE
 

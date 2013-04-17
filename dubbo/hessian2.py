@@ -6,11 +6,7 @@ import datetime
 import time
 import struct
 import pdb
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
+from cStringIO import StringIO
 
 _Hessian2Input__debug = False
 
