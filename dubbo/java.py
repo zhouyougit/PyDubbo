@@ -2,6 +2,7 @@ import zipfile
 import os
 import struct
 from cStringIO import StringIO
+from _model import Object
 
 MAGIC_NUMBER = 0xCAFEBABE
 
@@ -45,7 +46,9 @@ CONSTANT_DEFINE = (None, \
         '>HH', \
         '>HH')
 
-class JavaClass(object) :
+JAVA_PRIMITIVE_TYPE = {'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z'}
+
+class JavaClassInfo(object) :
     def __init__(self, input = None, classFileName = None) :
         if input != None :
             self.input = input
@@ -101,8 +104,9 @@ class JavaClass(object) :
     def __decodeConstant(self) :
         constantPoolCount = self.__readUShort()
 
-        constantPool = [None]
-        while constantPoolCount > 1 :   #len(constantPool) = constantPoolCount - 1
+        constantPool = [None] * constantPoolCount
+        i = 1
+        while i < constantPoolCount :   #len(constantPool) = constantPoolCount - 1
             type = ord(self.input.read(1))
             if type == CONSTANT_UTF8 :
                 length = self.__readUShort()
@@ -113,8 +117,11 @@ class JavaClass(object) :
                 length = struct.calcsize(defStr)
                 constant = list(struct.unpack(defStr, self.input.read(length)))
                 constant.insert(0, type)
-            constantPool.append(constant)
-            constantPoolCount -= 1
+            constantPool[i] = constant
+            if type == CONSTANT_LONG or type == CONSTANT_DOUBLE :
+                i += 2
+            else :
+                i += 1
         self.constantPool = constantPool
     
     def __decodeInterfaces(self) :
@@ -153,6 +160,7 @@ class JavaClass(object) :
             attribute['attributeNameIndex'] = self.__readUShort()
             attribute['attributeLength'] = struct.unpack('>I', self.input.read(4))[0]
             attribute['info'] = self.input.read(attribute['attributeLength'])
+            attributes.append(attribute)
 
         return attributes
 
@@ -176,7 +184,7 @@ class JarLoader(object) :
             except KeyError :
                 return None
             input = StringIO(classData)
-            classDef = JavaClass(input = input)
+            classDef = JavaClassInfo(input = input)
             self.classDefs[classFileName] = classDef
             return classDef
 
@@ -252,7 +260,7 @@ class JavaClassLoader(object) :
         if classPath == None :
             classPath = os.getenv('PD_CLASSPATH')
         if not classPath :
-            raise EnvironmentError('java class path is empty')
+            raise EnvironmentError('java classpath is empty')
         self.__analyseClassPath(classPath)
 
     def __analyseClassPath(self, classPath) :
@@ -265,7 +273,7 @@ class JavaClassLoader(object) :
             elif os.path.isdir(path) :
                 self.classPath.append(path)
 
-    def findClass(self, className) :
+    def findClassInfo(self, className) :
         if className in self.classMap :
             return self.classMap[className]
 
@@ -273,13 +281,52 @@ class JavaClassLoader(object) :
         if input == None :
             return None
         try :
-            classInfo = JavaClass(input)
+            classInfo = JavaClassInfo(input)
         finally :
             input.close()
 
         if classInfo != None :
             self.classMap[className] = classInfo
         return classInfo
+
+    def createConstObject(self, className) :
+        '''
+        create an Object with public final static field in class, the field type must be String or primitive type
+        '''
+        classInfo = self.findClassInfo(className)
+        if classInfo == None :
+            return None
+        obj = Object(className)
+        for field in classInfo.fields :
+            if field['accessFlags'] & ACC_PUBLIC & ACC_STATIC & ACC_FINAL != \
+                    ACC_PUBLIC & ACC_STATIC & ACC_FINAL :
+                continue
+            name = classInfo.constantPool[field['nameIndex']][2]
+            fieldType = classInfo.constantPool[field['descriptorIndex']][2]
+            if fieldType not in JAVA_PRIMITIVE_TYPE and fieldType != 'Ljava/lang/String;' :
+                continue
+            
+            valueIndex = ''
+            for attribute in field['attributeInfo'] :
+                attrName = classInfo.constantPool[attribute['attributeNameIndex']][2]
+                if attrName == 'ConstantValue' :
+                    valueIndex = attribute['info']
+            
+            if valueIndex == '' :
+                continue
+            valueIndex = struct.unpack('>H', valueIndex)[0]
+            value = classInfo.constantPool[valueIndex]
+            if fieldType in ('B', 'C') :
+                value = chr(value[1])
+            elif fieldType in  ('D', 'F', 'I', 'J', 'S') :
+                value = value[1]
+            elif fieldType == 'Z' :
+                value = value[1] != 0
+            else :
+                value = classInfo.constantPool[value[1]][2]
+            obj.__setattr__(name, value)
+        return obj
+
 
     def __findClassInput(self, className) :
         classFileName = className.replace('.', '/') + '.class'
@@ -301,10 +348,12 @@ class JavaClassLoader(object) :
 
 
 if __name__ == '__main__' :
-    javaClassLoader = JavaClassLoader('.:travel-service-interface-1.5.3.jar')
-    classDef = javaClassLoader.findClass('com.qunar.travel.book.service.ITravelBookService2')
-    print classDef
+    javaClassLoader = JavaClassLoader('../:../travel-service-interface-1.5.3.jar')
+    #obj = javaClassLoader.createConstObject('com.qunar.travel.book.constant.BookElementType')
+    #classInfo = javaClassLoader.findClassInfo('com.qunar.travel.book.constant.BookElementType')
+    classInfo = javaClassLoader.createConstObject('temp')
+    print classInfo
+    
     print '-----------'
-    classDef = javaClassLoader.findClass('ITravelBookService2')
-    print classDef
+
 

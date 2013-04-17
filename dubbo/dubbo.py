@@ -359,7 +359,7 @@ class Dubbo(object):
             self.config[KEY_REFERENCE] = {}
 
     def getProxy(self, interface, **args) :
-        classInfo = self.javaClassLoader.findClass(interface)
+        classInfo = self.javaClassLoader.findClassInfo(interface)
         if classInfo == None :
             return None
         attachments = self.attachments.copy()
@@ -376,6 +376,9 @@ class Dubbo(object):
         self.__checkAttachments(attachments)
 
         return DubboProxy(self.client, classInfo, attachments)
+
+    def createConstObjectFromClass(self, className) :
+        return self.javaClassLoader.createConstObject(className)
 
     def __checkAttachments(self, attachments) :
         if KEY_TIMEOUT not in attachments :
