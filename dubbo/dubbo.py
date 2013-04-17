@@ -16,6 +16,8 @@ import traceback
 
 __version__ = '0.1.0'
 
+RpcContent = threading.local()
+
 class Future(object) :
     FUTURES = {}
     FUTURES_LOCK = threading.Lock()
@@ -194,7 +196,7 @@ class DubboClient(object) :
     
     def invoke(self, request) :
         data = protocol.encodeRequest(request)
-        timeout = request.data.attachments['timeout'] / 1000
+        timeout = request.data.attachments['timeout']
         future = Future(request, timeout)
         self.endpoint.send(data)
         return future.get()
@@ -210,6 +212,11 @@ class DubboProxy(object) :
         self.client = client
         self.classInfo = classInfo
         self.attachments = attachments
+        if 'method' in attachments :
+            self.methodConfig = attachments['method']
+            del attachments['method']
+        else :
+            self.methodConfig = {}
 
     def invoke(self, name, args) :
         if not name in self.classInfo.methodMap :
@@ -233,8 +240,11 @@ class DubboProxy(object) :
         paramType = self.__getParamType(method)
 
         request = protocol.DubboRequest()
+        attachments = self.attachments.copy()
+        if name in self.methodConfig :
+            attachments.update(self.methodConfig[name])
         #print name, paramType, '(' + ', '.join([str(arg) for arg in args]) + ')', self.attachments
-        data = protocol.RpcInvocation(name, paramType, args, self.attachments)
+        data = protocol.RpcInvocation(name, paramType, args, attachments)
         request.data = data
         return self.client.invoke(request)
 
@@ -270,8 +280,6 @@ class DubboProxy(object) :
                 return method
         return None
 
-                    
-
     def __getParamType(self, method) :
         paramType = self.classInfo.constantPool[method['descriptorIndex']][2]
         paramType = paramType[paramType.find('(') + 1 : paramType.find(')')]
@@ -283,25 +291,46 @@ class DubboProxy(object) :
         return dubbo_invoke
 
 class Dubbo(object):
-    def __init__(self, addr, classPath = None, owner = None, customer = None, organization = None):
+    def __init__(self, addr, classPath = None, owner = None, customer = None, organization = None, config = None):
         self.client = DubboClient(addr)
         self.javaClassLoader = java.JavaClassLoader(classPath)
-        if owner == None :
-            owner = 'pythonGuest'
-        if customer == None :
-            customer = 'consumer-of-python-dubbo'
+        owner = owner or 'pythonGuest'
+        customer = customer or 'consumer-of-python-dubbo'
+        self.organization = organization or ''
         self.attachments = {'owner' : owner, 'customer' : customer}
+        self.config = config or {}
+        if self.config :
+            for key, value in self.config.items() :
+                if key == 'reference' :
+                    continue
+                self.attachments[key] = value
+        if 'reference' not in self.config :
+            self.config['reference'] = {}
 
-    def getProxy(self, interface, timeout = 1000, version = '1.0.0') :
+    def getProxy(self, interface, **args) :
         classInfo = self.javaClassLoader.findClass(interface)
         if classInfo == None :
             return None
         attachments = self.attachments.copy()
         attachments['path'] = interface
         attachments['interface'] = interface
-        attachments['timeout'] = timeout
-        attachments['version'] = version
+
+        if interface in self.config['reference'] :
+            attachments.update(self.config['reference'][interface])
+
+        if args :
+            for key, value in args.items() :
+                attachments[key] = value
+
+        self.__checkAttachments(attachments)
+
         return DubboProxy(self.client, classInfo, attachments)
+
+    def __checkAttachments(self, attachments) :
+        if 'timeout' not in attachments :
+            attachments['timeout'] = 1
+        if 'version' not in attachments :
+            attachments['version'] = '1.0.0'
 
 def __JsonDefault(obj): 
     if isinstance(obj, datetime.datetime) : 
@@ -334,14 +363,14 @@ def pth() :
 if __name__ == '__main__' :
     client = Dubbo(('localhost', 20880), '../travel-service-interface-1.5.3.jar', owner = 'you.zhou', customer = 'consumer-of-travel-book')
 
-    proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2', timeout = 1000)
+    proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2', timeout = 0.5)
 
-    thread.start_new_thread(pth, ())
+    #thread.start_new_thread(pth, ())
 
-    for i in range(10) :
-        thread.start_new_thread(th, (proxy, i))
-    time.sleep(100000)
-    #print formatObject(proxy.getBookUserIds([719791, 719827, 719844]))
+    #for i in range(10) :
+    #    thread.start_new_thread(th, (proxy, i))
+    #time.sleep(100000)
+    print formatObject(proxy.getBookUserIds([719791, 719827, 719844]))
     #antispamService = client.getProxy('com.qunar.travel.antispam.service.IAntispamService')
 
     #print formatObject(antispamService.check([u'你好江泽民', u'64', u'呵呵']))
