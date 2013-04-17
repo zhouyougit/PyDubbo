@@ -13,6 +13,8 @@ import types
 import datetime
 import time
 from constants import *
+import _model
+from _utils import formatObject
 
 __version__ = '0.1.0'
 
@@ -301,8 +303,8 @@ class DubboProxy(object) :
                     or (pType == types.StringType and jType == 'string') \
                     or (pType == types.TupleType and jType == 'list') \
                     or (pType == types.UnicodeType and jType == 'string') \
-                    or (pType == hessian2.Object and jType == args[i]._metaType) \
-                    or (pType == hessian2.Binary and jType == 'byte') :
+                    or (pType == _model.Object and jType == args[i]._metaType) \
+                    or (pType == _model.Binary and jType == 'byte') :
                     continue
                 elif pType == types.NoneType :
                     continue
@@ -381,19 +383,6 @@ class Dubbo(object):
         if KEY_VERSION not in attachments :
             attachments[KEY_VERSION] = DEFAULT_SERVICE_VERSION
 
-def __JsonDefault(obj): 
-    if isinstance(obj, datetime.datetime) : 
-        return obj.strftime('%Y-%m-%dT%H:%M:%S') 
-    elif isinstance(obj, datetime.date) : 
-        return obj.strftime('%Y-%m-%d') 
-    elif isinstance(obj, hessian2.Object) :
-        return obj.__dict__
-    else: 
-        raise TypeError('%r is not JSON serializable' % obj) 
-
-def formatObject(obj) :
-    return json.dumps(obj, ensure_ascii=False, indent=2, default = __JsonDefault)
-
 outQueue = Queue.Queue()
 
 def th(proxy, index) :
@@ -459,7 +448,7 @@ if __name__ == '__main__' :
 
     #print formatObject(antispamService.check([u'你好江泽民', u'64', u'呵呵']))
 
-    #sortE = hessian2.Object('com.qunar.travel.query.param.SortDir', {'name' : 'DESC'})
+    #sortE = _model.Object('com.qunar.travel.query.param.SortDir', {'name' : 'DESC'})
 
     #print formatObject(proxy.getBookList('5763120@qunar', 0, 10, 1, sortE))
 

@@ -7,24 +7,11 @@ import time
 import struct
 import pdb
 from cStringIO import StringIO
+from _model import *
+from _utils import printByteStr
 
 _Hessian2Input__debug = False
 
-class Binary(object) :
-    def __init__(self, value) :
-        self.value = value
-    def __add__(self, value) :
-        if self.value == None:
-            return Binary(value)
-        elif value == None :
-            return self
-        else:
-            return Binary(self.value + value.value)
-    def __str__(self) :
-        if self.value == None :
-            return 'Binary : None'
-        else :
-            return 'Binary : length =', len(self.value)
 
 class ClassDef(object) :
     def __init__(self, type, fieldNames) :
@@ -32,18 +19,6 @@ class ClassDef(object) :
         self.fieldNames = fieldNames
     def __str__(self) :
         return 'ClassDef : ' + self.type + ' [' + ','.join(self.fieldNames) + ']'
-
-class Object(object) :
-    def __init__(self, type, fields = None) :
-        self._metaType = str(type)
-        if fields :
-            for (k, v) in fields.items() :
-                self.__setattr__(str(k), v)
-    
-    def __str__(self) :
-        temp = self.__dict__.copy()
-        del temp['_metaType']
-        return self._metaType + ' : ' + str(temp)
 
 ENCODERS = {}
 
@@ -53,18 +28,6 @@ def encoderFor(data_type):
         ENCODERS[data_type] = f
         return f
     return register
-
-
-def printByteStr(encodeStr) :
-    outstr = ''
-    col = 0
-    for c in encodeStr :
-        outstr += '%02x ' % (ord(c))
-        col += 1
-        if col >= 16 :
-            col = 0
-            outstr += '\n'
-    print outstr
 
 class Hessian2Output(object) :
     def __init__(self) :
