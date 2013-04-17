@@ -12,7 +12,7 @@ import json
 import types
 import datetime
 import time
-import constants
+from constants import *
 
 __version__ = '0.1.0'
 
@@ -201,9 +201,9 @@ class DubboClient(object) :
     
     def invoke(self, request) :
         data = protocol.encodeRequest(request)
-        timeout = _getRequestParam(request, constants.KEY_TIMEOUT)
-        withReturn = _getRequestParam(request, constants.KEY_WITH_RETURN, True)
-        async = _getRequestParam(request, constants.KEY_ASYNC, False)
+        timeout = _getRequestParam(request, KEY_TIMEOUT)
+        withReturn = _getRequestParam(request, KEY_WITH_RETURN, True)
+        async = _getRequestParam(request, KEY_ASYNC, False)
         if not withReturn :
             self.endpoint.send(data)
             return
@@ -229,17 +229,17 @@ class DubboProxy(object) :
         self.client = client
         self.classInfo = classInfo
         self.attachments = attachments
-        if constants.KEY_METHOD in attachments :
-            self.methodConfig = attachments[constants.KEY_METHOD]
-            del attachments[constants.KEY_METHOD]
+        if KEY_METHOD in attachments :
+            self.methodConfig = attachments[KEY_METHOD]
+            del attachments[KEY_METHOD]
         else :
             self.methodConfig = {}
 
     def _updateConfig(self, config) :
         config = config.copy()
-        if constants.KEY_METHOD in config :
-            methodConfig = config[constants.KEY_METHOD]
-            del config[constants.KEY_METHOD]
+        if KEY_METHOD in config :
+            methodConfig = config[KEY_METHOD]
+            del config[KEY_METHOD]
         else :
             methodConfig = None
         self.attachments.update(config)
@@ -275,6 +275,7 @@ class DubboProxy(object) :
         attachments = self.attachments.copy()
         if name in self.methodConfig :
             attachments.update(self.methodConfig[name])
+        print attachments
         #print name, paramType, '(' + ', '.join([str(arg) for arg in args]) + ')', self.attachments
         data = protocol.RpcInvocation(name, paramType, args, attachments)
         request.data = data
@@ -322,33 +323,49 @@ class DubboProxy(object) :
             return self.invoke(name, args)
         return dubbo_invoke
 
+def _getAndDelConfigParam(config, key, default = None) :
+    if config and key in config :
+        value = config[key]
+        del config[key]
+        return value
+    else :
+        return default
+
 class Dubbo(object):
-    def __init__(self, addr, classPath = None, owner = None, customer = None, organization = None, config = None):
+    def __init__(self, addr, config = None):
+        if config :
+            config = config.copy()
+        else :
+            config = {}
+        self.config = config
+
         self.client = DubboClient(addr)
-        self.javaClassLoader = java.JavaClassLoader(classPath)
-        owner = owner or 'pythonGuest'
-        customer = customer or 'consumer-of-python-dubbo'
-        self.organization = organization or ''
-        self.attachments = {constants.KEY_OWNER : owner, constants.KEY_CUSTOMER : customer}
-        self.config = config or {}
-        if self.config :
-            for key, value in self.config.items() :
-                if key == constants.KEY_REFERENCE :
-                    continue
-                self.attachments[key] = value
-        if constants.KEY_REFERENCE not in self.config :
-            self.config[constants.KEY_REFERENCE] = {}
+        
+        classpath = _getAndDelConfigParam(config, KEY_CLASSPATH)
+        self.javaClassLoader = java.JavaClassLoader(classpath)
+
+        owner = _getAndDelConfigParam(config, KEY_DUBBO_OWNER, DEFAULT_DUBBO_OWNER)
+        customer = _getAndDelConfigParam(config, KEY_DUBBO_CUSTOMER, DEFAULT_DUBBO_CUSTOMER)
+        self.attachments = {KEY_OWNER : owner, KEY_CUSTOMER : customer}
+        
+        for key, value in self.config.items() :
+            if key == KEY_REFERENCE :
+                continue
+            self.attachments[key] = value
+
+        if KEY_REFERENCE not in self.config :
+            self.config[KEY_REFERENCE] = {}
 
     def getProxy(self, interface, **args) :
         classInfo = self.javaClassLoader.findClass(interface)
         if classInfo == None :
             return None
         attachments = self.attachments.copy()
-        attachments[constants.KEY_PATH] = interface
-        attachments[constants.KEY_INTERFACE] = interface
+        attachments[KEY_PATH] = interface
+        attachments[KEY_INTERFACE] = interface
 
-        if interface in self.config[constants.KEY_REFERENCE] :
-            attachments.update(self.config[constants.KEY_REFERENCE][interface])
+        if interface in self.config[KEY_REFERENCE] :
+            attachments.update(self.config[KEY_REFERENCE][interface])
 
         if args :
             for key, value in args.items() :
@@ -359,10 +376,10 @@ class Dubbo(object):
         return DubboProxy(self.client, classInfo, attachments)
 
     def __checkAttachments(self, attachments) :
-        if constants.KEY_TIMEOUT not in attachments :
-            attachments[constants.KEY_TIMEOUT] = constants.DEFAULT_TIMEOUT
-        if constants.KEY_VERSION not in attachments :
-            attachments[constants.KEY_VERSION] = constants.DEFAULT_SERVICE_VERSION
+        if KEY_TIMEOUT not in attachments :
+            attachments[KEY_TIMEOUT] = DEFAULT_TIMEOUT
+        if KEY_VERSION not in attachments :
+            attachments[KEY_VERSION] = DEFAULT_SERVICE_VERSION
 
 def __JsonDefault(obj): 
     if isinstance(obj, datetime.datetime) : 
@@ -395,17 +412,36 @@ def pth() :
         print msg
 
 if __name__ == '__main__' :
-    client = Dubbo(('localhost', 20880), '../travel-service-interface-1.5.3.jar', owner = 'you.zhou', customer = 'consumer-of-travel-book')
+    config = { \
+            'owner' : 'pythonUser', \
+            'customer' : 'consumer-of-python', \
+            'classpath' : '../travel-service-interface-1.5.3.jar', \
+            'reference' : { \
+                'com.qunar.travel.book.service.ITravelBookService2' : { \
+                    'method' : { \
+                        'getBookUserIds' : {
+                            'async' : True
+                        },
+                    }
+                }
+            }
+        }
+    client = Dubbo(('localhost', 20880), config)
 
-    proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2', timeout = 0.5, async = True)
+    proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2', timeout = 0.5)
+    start = time.time()
+    result = proxy.getBookUserIds([719791, 719827, 719844])
+    print result
+    print formatObject(RpcContext.future.get())
+
+    print formatObject(proxy.getTravelBookOverView(719791))
     '''
     thread.start_new_thread(pth, ())
 
     for i in range(10) :
         thread.start_new_thread(th, (proxy, i))
     time.sleep(100000)
-    '''
-    start = time.time()
+    
     result = []
     for i in range(100) :
         proxy.getBookUserIds([719791, 719827, 719844])
@@ -414,7 +450,6 @@ if __name__ == '__main__' :
     for result in result :
         print formatObject(result.get())
 
-    '''
     for i in range(100) :
         print formatObject(proxy.getBookUserIds([719791, 719827, 719844]))
     '''
