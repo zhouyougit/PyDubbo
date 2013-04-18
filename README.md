@@ -18,7 +18,7 @@ PyDubbo
 示例
 ----------
         config = { 'classpath' : '%classpath%' }
-        client = Dubbo(('localhost', 20880), config)
+        client = Dubbo((('localhost', 20880),), config)
         remoteService = client.getProxy('com.test.RemoteService')
 
         print remoteService.getTestInfo(123)
