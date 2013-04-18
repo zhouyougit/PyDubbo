@@ -192,11 +192,6 @@ class DubboChannel(object) :
 
     def __recvResponse(self, header, data) :
         self.lastReadTime = time.time()
-        print '---- header ----'
-        printByteStr(header)
-        print '---- body ----'
-        printByteStr(data)
-        print '---- end ----'
         obj = protocol.decode(header, data)
         if isinstance(obj, protocol.DubboRequest) :
             request = obj

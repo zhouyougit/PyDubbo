@@ -128,7 +128,7 @@ def encodeRequest(request) :
 
     if request.isEvent :
         pass
-        data = encodeEventData(request.getData())
+        data = encodeEventData(request.data)
     else :
         data = encodeRequestData(request.data)
 

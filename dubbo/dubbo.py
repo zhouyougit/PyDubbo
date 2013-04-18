@@ -24,10 +24,6 @@ __version__ = '0.1.0'
 RpcContext = threading.local()
 
 scheduledExecutor = scheduler.Scheduler()
-scheduledExecutor.start()
-
-scheduledExecutor.schedule(Future._checkTimeoutLoop, \
-        DEFAULT_FUTURE_CHECK_PERIOD, DEFAULT_FUTURE_CHECK_PERIOD)
 
 def _getRequestParam(request, key, default = None) :
     if key in request.data.attachments :
@@ -135,7 +131,7 @@ class ServiceProxy(object) :
         attachments = self.attachments.copy()
         if name in self.methodConfig :
             attachments.update(self.methodConfig[name])
-        print attachments
+        #print attachments
         #print name, paramType, '(' + ', '.join([str(arg) for arg in args]) + ')', self.attachments
         invocation = protocol.RpcInvocation(name, paramType, args, attachments)
         return self.client.invoke(invocation)
@@ -212,8 +208,12 @@ class Dubbo(object):
 
         if KEY_REFERENCE not in self.config :
             self.config[KEY_REFERENCE] = {}
-        
+
+        scheduledExecutor.start()
+
         self.client = DubboClient(addrs, self.config)
+        scheduledExecutor.schedule(Future._checkTimeoutLoop, \
+                DEFAULT_FUTURE_CHECK_PERIOD, DEFAULT_FUTURE_CHECK_PERIOD)
 
     def getProxy(self, interface, **args) :
         classInfo = self.javaClassLoader.findClassInfo(interface)
@@ -267,6 +267,7 @@ if __name__ == '__main__' :
     config = { \
             'owner' : 'pythonUser', \
             'customer' : 'consumer-of-python', \
+            'heartbeat' : 20, \
             'classpath' : '../travel-service-interface-1.5.3.jar', \
             'reference' : { \
                 'com.qunar.travel.book.service.ITravelBookService2' : { \
@@ -287,7 +288,6 @@ if __name__ == '__main__' :
     print formatObject(RpcContext.future.get())
 
     print formatObject(proxy.getTravelBookOverView(719791))
-    print 'sleep'
     '''
     thread.start_new_thread(pth, ())
 
@@ -307,6 +307,9 @@ if __name__ == '__main__' :
         print formatObject(proxy.getBookUserIds([719791, 719827, 719844]))
     '''
     print time.time() - start
+
+    print 'sleep'
+    #time.sleep(100000)
 
     client.close()
 
