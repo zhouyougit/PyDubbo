@@ -1,194 +1,33 @@
 #!/usr/python
 #coding=utf-8
 import json
-import socket
 import protocol
 import hessian2
 import threading
 import thread
 import Queue
-import java
-import json
 import types
+import json
 import datetime
 import time
+import random
+
+import java
 from constants import *
 import _model
-from _utils import formatObject
+from _utils import *
+from _net import *
+import scheduler
 
 __version__ = '0.1.0'
 
 RpcContext = threading.local()
 
-class Future(object) :
-    FUTURES = {}
-    FUTURES_LOCK = threading.Lock()
-    def __init__(self, request, timeout) :
-        self.id = request.rid
-        self.timeout = timeout
-        self.lock = threading.Lock()
-        self.cond = threading.Condition(self.lock)
-        self.reqeust = request
-        self.response = None
-        self.timestamp = time.time()
-        Future.FUTURES_LOCK.acquire()
-        try :
-            Future.FUTURES[self.id] = self
-        finally :
-            Future.FUTURES_LOCK.release()
+scheduledExecutor = scheduler.Scheduler()
+scheduledExecutor.start()
 
-    def get(self) :
-        return self.getWithTimeout(self.timeout)
-    
-    def getWithTimeout(self, timeout) :
-        if self.isDone() :
-            return self.__doReturn()
-        with self.lock :
-            if not self.isDone() :
-                self.cond.wait(self.timeout)
-                if not self.isDone() :
-                    raise protocol.DubboTimeoutException('waiting response timeout. elapsed :' + str(self.timeout))
-
-        return self.__doReturn()
-
-    def setCallback(self, callback) :
-        pass
-
-    def isDone(self) :
-        return self.response != None
-
-    @classmethod
-    def received(cls, response) :
-        if response.rid in cls.FUTURES :
-            Future.FUTURES_LOCK.acquire()
-            try :
-                if response.rid in cls.FUTURES :
-                    future = Future.FUTURES[response.rid]
-                    del Future.FUTURES[response.rid]
-                else :
-                    return
-            finally :
-                Future.FUTURES_LOCK.release()
-            future.doReceived(response)
-
-    def doReceived(self, response) :
-        with self.lock :
-            self.response = response
-            self.cond.notifyAll()
-
-    def __doReturn(self) :
-        if self.response.status != protocol.DubboResponse.OK :
-            raise protocol.DubboException('DubboException : status = ' + \
-                    str(self.response.status) + ' errorMsg = ' + \
-                    str(self.response.errorMsg))
-        elif self.response.exception != None :
-            raise protocol.DubboException(self.response.exception)
-        else :
-            return self.response.result
-
-    @classmethod
-    def _checkTimeoutLoop(cls) :
-        while True :
-            try :
-                for future in Future.FUTURES.values() :
-                    if future.isDone() :
-                        continue
-                    if (time.time() - future.timestamp) > future.timeout :
-                        print 'find timeout future'
-                        response = protocol.DubboResponse(future.id)
-                        response.status = protocol.DubboResponse.SERVER_TIMEOUT
-                        response.seterrorMsg = 'waiting response timeout. elapsed :' + str(future.timeout)
-                        Future.received(response)
-                time.sleep(0.03)
-            except Exception, e:
-                print 'check timeout loop' + str(e)
-
-thread.start_new_thread(Future._checkTimeoutLoop, ())
-
-class Endpoint(object) :
-    def __init__(self, addr, readHandler) :
-        self.addr = addr
-        self.readHandler = readHandler
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.queue = Queue.Queue()
-        self.lock = threading.Lock()
-        self.cTime = None
-
-    def start(self) :
-        self.sock.connect(self.addr)
-        self.cTime = time.time()
-        thread.start_new_thread(self.__sendLoop, ())
-        thread.start_new_thread(self.__recvLoop, ())
-
-    def send(self, data) :
-        self.queue.put(data)
-
-    def __sendLoop(self) :
-        while True :
-            try :
-                data = self.queue.get()
-                self.sock.sendall(data)
-            except Exception, e :
-                print 'send error'
-                self.__reconnection()
-
-    def __reconnection(self) :
-        if not self.lock.acquire(False) :
-            self.lock.acquire()
-            self.lock.release()
-            return
-        try :
-            print 'start reconnection'
-            while True :
-                try :
-                    print 'start shutdown'
-                    try :
-                        self.sock.shutdown(socket.SHUT_RDWR)
-                    except :
-                        pass
-                    print 'finish shutdown'
-                    del self.sock
-                    print 'create new socket'
-                    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    print 'create new socket finish'
-                    self.cTime = time.time()
-                    print 'start connect'
-                    self.sock.connect(self.addr)
-                    print 'finish connect'
-                    break
-                except socket.error :
-                    if time.time() - self.cTime < 2 :
-                        time.sleep(2)
-        finally :
-            self.lock.release()
-        print 'end reconnection'
-
-    def __recv(self, length) :
-        while True :
-            data = self.sock.recv(length)
-            if not data :
-                print 'recv error'
-                self.__reconnection()
-                continue
-            return data
-
-    def __recvLoop(self) :
-        while True :
-            try :
-                header = self.__recv(protocol.HEADER_LENGTH)
-                if header[:2] != protocol.MAGIC_NUMBER :
-                    continue
-                while len(header) < protocol.HEADER_LENGTH :
-                    temp = self.__recv(protocol.HEADER_LENGTH - len(header))
-                    header += temp
-                dataLength = protocol.getDataLength(header)
-                data = ''
-                while len(data) < dataLength :
-                    temp = self.__recv(dataLength - len(data))
-                    data += temp
-                self.readHandler(header, data)
-            except Exception, e :
-                print 'recv loop' + str(e)
+scheduledExecutor.schedule(Future._checkTimeoutLoop, \
+        DEFAULT_FUTURE_CHECK_PERIOD, DEFAULT_FUTURE_CHECK_PERIOD)
 
 def _getRequestParam(request, key, default = None) :
     if key in request.data.attachments :
@@ -196,37 +35,57 @@ def _getRequestParam(request, key, default = None) :
     return default
 
 class DubboClient(object) :
-    def __init__(self, addr) :
-        self.addr = addr
-        self.endpoint = Endpoint(addr, self.__recvResponse)
-        self.endpoint.start()
+    def __init__(self, addrs, config) :
+        self.channels = []
+        for addr in addrs :
+            self.channels.append(DubboChannel(addr))
+
+        if config and KEY_HEARTBEAT in config :
+            self.heartbeat = config[KEY_HEARTBEAT]
+        else :
+            self.heartbeat = DEFAULT_HEARTBEAT
+
+        scheduledExecutor.schedule(self.__heartbeatCheck, self.heartbeat, self.heartbeat)
     
-    def invoke(self, request) :
-        data = protocol.encodeRequest(request)
+    def invoke(self, rpcInvocation) :
+        request = protocol.DubboRequest()
+        request.data = rpcInvocation
+        
+        channel = self.__selectChannel(request)
+
         timeout = _getRequestParam(request, KEY_TIMEOUT)
         withReturn = _getRequestParam(request, KEY_WITH_RETURN, True)
         async = _getRequestParam(request, KEY_ASYNC, False)
+        
         if not withReturn :
-            self.endpoint.send(data)
+            channel.send(data)
             return
-
+        
         if async :
-            future = Future(request, timeout)
+            future = Future(request, timeout, channel)
             RpcContext.future = future
-            self.endpoint.send(data)
+            channel.send(request)
             return
         else :
-            future = Future(request, timeout)
-            self.endpoint.send(data)
+            future = Future(request, timeout, channel)
+            channel.send(request)
             return future.get()
 
-    def __recvResponse(self, header, data) :
-        response = protocol.decode(header, data)
-        if response.isEvent : 
-            return
-        Future.received(response)
+    def __selectChannel(self, request) :
+        index = random.randint(0, len(self.channels) - 1)
+        return self.channels[index]
 
-class DubboProxy(object) :
+    def __heartbeatCheck(self) :
+        now = time.time()
+        for channel in self.channels :
+            if now - channel.lastReadTime > self.heartbeat \
+                    or now - channel.lastWriteTime > self.heartbeat :
+                request = protocol.DubboRequest()
+                request.isEvent = True
+                request.isHeartbeat = True
+                channel.send(request)
+
+class ServiceProxy(object) :
     def __init__(self, client, classInfo, attachments) :
         self.client = client
         self.classInfo = classInfo
@@ -273,15 +132,13 @@ class DubboProxy(object) :
         
         paramType = self.__getParamType(method)
 
-        request = protocol.DubboRequest()
         attachments = self.attachments.copy()
         if name in self.methodConfig :
             attachments.update(self.methodConfig[name])
         print attachments
         #print name, paramType, '(' + ', '.join([str(arg) for arg in args]) + ')', self.attachments
-        data = protocol.RpcInvocation(name, paramType, args, attachments)
-        request.data = data
-        return self.client.invoke(request)
+        invocation = protocol.RpcInvocation(name, paramType, args, attachments)
+        return self.client.invoke(invocation)
 
     def __guessMethod(self, methods, args) :
         for method in methods :
@@ -334,15 +191,13 @@ def _getAndDelConfigParam(config, key, default = None) :
         return default
 
 class Dubbo(object):
-    def __init__(self, addr, config = None):
+    def __init__(self, addrs, config = None):
         if config :
             config = config.copy()
         else :
             config = {}
         self.config = config
 
-        self.client = DubboClient(addr)
-        
         classpath = _getAndDelConfigParam(config, KEY_CLASSPATH)
         self.javaClassLoader = java.JavaClassLoader(classpath)
 
@@ -357,6 +212,8 @@ class Dubbo(object):
 
         if KEY_REFERENCE not in self.config :
             self.config[KEY_REFERENCE] = {}
+        
+        self.client = DubboClient(addrs, self.config)
 
     def getProxy(self, interface, **args) :
         classInfo = self.javaClassLoader.findClassInfo(interface)
@@ -375,7 +232,7 @@ class Dubbo(object):
 
         self.__checkAttachments(attachments)
 
-        return DubboProxy(self.client, classInfo, attachments)
+        return ServiceProxy(self.client, classInfo, attachments)
 
     def createConstObjectFromClass(self, className) :
         return self.javaClassLoader.createConstObject(className)
@@ -385,6 +242,9 @@ class Dubbo(object):
             attachments[KEY_TIMEOUT] = DEFAULT_TIMEOUT
         if KEY_VERSION not in attachments :
             attachments[KEY_VERSION] = DEFAULT_SERVICE_VERSION
+
+    def close(self) :
+        scheduledExecutor.stop()
 
 outQueue = Queue.Queue()
 
@@ -418,7 +278,7 @@ if __name__ == '__main__' :
                 }
             }
         }
-    client = Dubbo(('localhost', 20880), config)
+    client = Dubbo((('localhost', 20880),), config)
 
     proxy = client.getProxy('com.qunar.travel.book.service.ITravelBookService2', timeout = 0.5)
     start = time.time()
@@ -427,6 +287,7 @@ if __name__ == '__main__' :
     print formatObject(RpcContext.future.get())
 
     print formatObject(proxy.getTravelBookOverView(719791))
+    print 'sleep'
     '''
     thread.start_new_thread(pth, ())
 
@@ -446,6 +307,8 @@ if __name__ == '__main__' :
         print formatObject(proxy.getBookUserIds([719791, 719827, 719844]))
     '''
     print time.time() - start
+
+    client.close()
 
     #antispamService = client.getProxy('com.qunar.travel.antispam.service.IAntispamService')
 

@@ -23,6 +23,10 @@ PyDubbo
 
         print remoteService.getTestInfo(123)
 
+Java Object 相关
+----------------
+接口输入输出需要Java Class时，使用Object的实例
+
 config 参考
 -----------
 Dubbo对象的config参数包含的内容比较丰富，目前支持的配置如下：

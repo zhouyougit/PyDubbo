@@ -23,19 +23,28 @@ class RpcInvocation(object) :
         self.params = params or []
         self.attachments = attachments or {}
 
+class RpcResult(object) :
+    def __init__(self, value = None, exception = None) :
+        self.value = value
+        self.exception = exception
+
 class DubboRequest(object) :
     ridLock = threading.Lock()
     nextRid = 0
-    def __init__(self, twoWay = True, event = False, broken = False, data = None) :
-        if self.ridLock.acquire() :
-            self.rid = DubboRequest.nextRid
-            DubboRequest.nextRid += 1
-            self.ridLock.release()
+    def __init__(self, rid = None, twoWay = True, event = False, broken = False, data = None) :
+
+        if rid == None :
+            with self.ridLock :
+                self.rid = DubboRequest.nextRid
+                DubboRequest.nextRid += 1
+        else :
+            self.rid = rid
 
         self.isTwoWay = twoWay
         self.isEvent = event
         self.isBroken = broken
         self.data = data
+        self.isHeartbeat = False
 
     def __str__(self) :
         return 'DubboRequest :' + str(self.__dict__)
@@ -54,6 +63,7 @@ class DubboResponse(object) :
         self.rid = rid
         self.status = DubboResponse.OK
         self.isEvent = False
+        self.isHeartbeat = False
         self.version = ''
         self.errorMsg = ''
         self.result = None
@@ -96,6 +106,11 @@ def encodeRequestData(invocation) :
     out.writeObject(invocation.attachments)
     return out.getByteString()
 
+def encodeEventData(data) :
+    out = hessian2.Hessian2Output()
+    out.writeObject(data)
+    return out.getByteString()
+
 def encodeRequest(request) :
     if not isinstance(request, DubboRequest) :
         raise TypeError('encodeRequest only support DubboRequest type')
@@ -111,12 +126,44 @@ def encodeRequest(request) :
     header += '\x00'
     header += struct.pack('>q', request.rid)
 
-    data = None
     if request.isEvent :
         pass
-        #data = encodeEventData(request.getData())
+        data = encodeEventData(request.getData())
     else :
         data = encodeRequestData(request.data)
+
+    dataLength = len(data)
+    header += struct.pack('>i', dataLength)
+
+    return header + data
+
+def encodeResponseData(rpcResult) :
+    if rpcResult.exception :
+        out.write(RESPONSE_WITH_EXCEPTION)
+        out.write(rpcResult.value)
+    elif rpcResult.value == None :
+        out.write(RESPONSE_NULL_VALUE)
+    else :
+        out.write(RESPONSE_VALUE)
+        out.write(rpcResult.value)
+
+def encodeResponse(response) :
+    if not isinstance(response, DubboResponse) :
+        raise TypeError('encodeResponse only support DubboResponse type')
+    header = ''
+    header += MAGIC_NUMBER
+    flag = HESSIAN2_CONTENT_TYPE_ID
+    if response.isEvent :
+        flag |= FLAG_EVENT
+    header += chr(flag)
+    header += chr(response.status)
+    header += struct.pack('>q', request.rid)
+    
+    if response.status == DubboResponse.OK :
+        if response.isEvent :
+            data = encodeEventData(response.result)
+        else :
+            data = encodeResponseData(response.result)
 
     dataLength = len(data)
     header += struct.pack('>i', dataLength)
@@ -138,22 +185,34 @@ def decodeResponseData(response, input) :
     elif flag == RESPONSE_WITH_EXCEPTION :
         response.exception = input.readObject()
 
+def decodeRequestData(request, input) :
+    return None
+
 def decode(header, data) :
     flag = ord(header[2])
     status = ord(header[3])
     rid = getRequestId(header)
+    input = hessian2.Hessian2Input(data)
     if flag & FLAG_REQUEST != 0 :
-        #request
-        return None
+        request = DubboRequest(rid = rid)
+        request.isTwoWay = flag & FLAG_TWOWAY != 0
+        if flag & FLAG_EVENT != 0 :
+            request.isEvent = True
+            request.isHeartbeat = True
+        if request.isEvent :
+            request.data = input.readObject()
+        else :
+            decodeRequestData(request, input)
+        return request
     else :
         response = DubboResponse(rid)
         response.status = status
         response.isEvent = flag & FLAG_EVENT
-        input = hessian2.Hessian2Input(data)
         if response.status != DubboResponse.OK :
             response.errorMsg = input.readObject()
         else :
             if response.isEvent :
+                response.isHeartbeat = True
                 response.result = input.readObject()
             else :
                 decodeResponseData(response, input)

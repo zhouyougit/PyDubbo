@@ -16,6 +16,8 @@ def formatObject(obj) :
     return json.dumps(obj, ensure_ascii=False, indent=2, default = __JsonDefault)
 
 def printByteStr(encodeStr) :
+    if not encodeStr :
+        return
     outstr = ''
     col = 0
     for c in encodeStr :
